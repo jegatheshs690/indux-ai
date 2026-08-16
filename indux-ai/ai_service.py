@@ -1,1366 +1,862 @@
+import pandas as pd
 import re
 
-
-# =========================================================
-# INDUX AI - LOCAL AI SERVICE
-# API KEY NOT REQUIRED
-# =========================================================
-#
-# This module provides lightweight local AI/NLP functionality
-# for the InduX AI hackathon prototype.
-#
-# Features:
-#   1. Product information extraction
-#   2. Recommendation explanation
-#   3. Product comparison
-#   4. Data quality analysis
-#
-# No external AI API is required.
-# =========================================================
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 # =========================================================
-# UTILITY
+# DATA FILE
 # =========================================================
 
-def clean_value(value):
-    """
-    Convert a value into a clean string.
-
-    Empty/invalid values such as NaN, None and null
-    are converted into an empty string.
-    """
-
-    if value is None:
-        return ""
-
-    value = str(value).strip()
-
-    if value.lower() in [
-        "nan",
-        "none",
-        "null",
-        ""
-    ]:
-        return ""
-
-    return value
+DATA_FILE = "data/products.csv"
 
 
 # =========================================================
-# PRODUCT INFORMATION EXTRACTION
+# PRODUCT TYPES
 # =========================================================
 
-def extract_product_information(
-    pdf_text,
-    existing_attributes=None
-):
-    """
-    Extract structured product information from PDF text
-    using lightweight local NLP and regular expressions.
+PRODUCT_TYPES = [
+    "pump",
+    "motor",
+    "valve",
+    "tool",
+    "drill",
+    "compressor",
+    "bearing",
+    "sensor",
+    "switch",
+    "cable",
+    "machine",
+    "machinery",
+    "equipment",
+    "welding",
+    "generator",
+    "filter",
+    "hose",
+    "clamp",
+    "wrench",
+    "hammer",
+    "saw",
+    "grinder",
+]
 
-    No API key is required.
-    """
 
-    if existing_attributes is None:
-        existing_attributes = {}
+# =========================================================
+# MATERIALS
+# =========================================================
 
-    text = clean_value(pdf_text)
+MATERIALS = [
+    "stainless steel",
+    "carbon steel",
+    "aluminum",
+    "aluminium",
+    "plastic",
+    "rubber",
+    "copper",
+    "brass",
+    "iron",
+]
 
-    # -----------------------------------------------------
-    # Empty PDF
-    # -----------------------------------------------------
 
-    if not text:
+# =========================================================
+# INDUSTRIAL KEYWORDS
+# =========================================================
 
-        return {
-            "product_name": None,
-            "product_type": None,
-            "manufacturer": None,
-            "model": None,
-            "material": None,
-            "application": None,
-            "pressure": None,
-            "flow_rate": None,
-            "voltage": None,
-            "power": None,
-            "temperature": None,
-            "weight": None,
-            "dimensions": None,
-            "certification": None,
-            "important_specifications": []
-        }
+INDUSTRIAL_WORDS = [
+    "industrial",
+    "machinery",
+    "machine",
+    "equipment",
+    "hardware",
+    "electrical",
+    "mechanical",
+    "manufacturing",
+    "engineering",
+    "commercial",
+    "professional",
+]
 
-    text_lower = text.lower()
 
-    # -----------------------------------------------------
-    # Initial result structure
-    # -----------------------------------------------------
+# =========================================================
+# IRRELEVANT CONSUMER CATEGORIES
+# =========================================================
 
-    result = {
+IRRELEVANT_CATEGORIES = [
+    "toys & games",
+    "clothing",
+    "baby products",
+    "costumes",
+    "dolls",
+    "stuffed animals",
+    "puzzles",
+    "party supplies",
+    "games & accessories",
+]
 
-        "product_name":
-            existing_attributes.get(
-                "product_name"
-            ),
 
-        "product_type":
-            existing_attributes.get(
-                "product_type"
-            ),
+# =========================================================
+# REQUIREMENT EXTRACTION
+# =========================================================
 
-        "manufacturer":
-            existing_attributes.get(
-                "manufacturer"
-            ),
+def extract_requirements(query):
 
-        "model":
-            existing_attributes.get(
-                "model"
-            ),
+    query_lower = query.lower()
 
-        "material":
-            existing_attributes.get(
-                "material"
-            ),
-
-        "application":
-            existing_attributes.get(
-                "application"
-            ),
-
-        "pressure":
-            existing_attributes.get(
-                "pressure"
-            ),
-
-        "flow_rate":
-            existing_attributes.get(
-                "flow_rate"
-            ),
-
-        "voltage":
-            existing_attributes.get(
-                "voltage"
-            ),
-
-        "power":
-            existing_attributes.get(
-                "power"
-            ),
-
-        "temperature":
-            existing_attributes.get(
-                "temperature"
-            ),
-
-        "weight":
-            existing_attributes.get(
-                "weight"
-            ),
-
-        "dimensions":
-            existing_attributes.get(
-                "dimensions"
-            ),
-
-        "certification":
-            existing_attributes.get(
-                "certification"
-            ),
-
-        "important_specifications":
-            []
+    requirements = {
+        "product_type": None,
+        "materials": [],
+        "numbers": [],
+        "industrial": False
     }
 
-    # =====================================================
-    # PRODUCT NAME
-    # =====================================================
-
-    if not result["product_name"]:
-
-        product_name_patterns = [
-
-            r"product\s*name\s*[:\-]\s*([^\n]+)",
-
-            r"product\s*[:\-]\s*([^\n]+)",
-
-            r"model\s*name\s*[:\-]\s*([^\n]+)"
-        ]
-
-        for pattern in product_name_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["product_name"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # PRODUCT TYPE
-    # =====================================================
-
-    product_types = [
-
-        "pump",
-        "motor",
-        "valve",
-        "compressor",
-        "generator",
-        "drill",
-        "grinder",
-        "saw",
-        "sensor",
-        "switch",
-        "filter",
-        "hose",
-        "bearing",
-        "clamp",
-        "cable",
-        "controller",
-        "transformer",
-        "fan",
-        "blower",
-        "machine",
-        "machinery",
-        "tool",
-        "equipment"
-    ]
-
-    if not result["product_type"]:
-
-        for product_type in product_types:
-
-            if re.search(
-                r"\b"
-                + re.escape(product_type)
-                + r"\b",
-                text_lower
-            ):
-
-                result["product_type"] = (
-                    product_type.title()
-                )
-
-                break
-
-    # =====================================================
-    # MANUFACTURER
-    # =====================================================
-
-    manufacturer_patterns = [
-
-        r"manufacturer\s*[:\-]\s*([^\n]+)",
-
-        r"manufactured\s*by\s*[:\-]?\s*([^\n]+)",
-
-        r"brand\s*[:\-]\s*([^\n]+)",
-
-        r"maker\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["manufacturer"]:
-
-        for pattern in manufacturer_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["manufacturer"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # MODEL
-    # =====================================================
-
-    model_patterns = [
-
-        r"model\s*(?:number|no\.|#)?"
-        r"\s*[:\-]\s*([A-Za-z0-9\-_./]+)",
-
-        r"part\s*(?:number|no\.|#)?"
-        r"\s*[:\-]\s*([A-Za-z0-9\-_./]+)",
-
-        r"model\s*[:\-]\s*([A-Za-z0-9\-_./]+)"
-    ]
-
-    if not result["model"]:
-
-        for pattern in model_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["model"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # MATERIAL
-    # =====================================================
-
-    material_patterns = [
-
-        r"material\s*[:\-]\s*([^\n]+)",
-
-        r"construction\s*[:\-]\s*([^\n]+)",
-
-        r"body\s*material\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["material"]:
-
-        for pattern in material_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["material"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # APPLICATION
-    # =====================================================
-
-    application_patterns = [
-
-        r"application\s*[:\-]\s*([^\n]+)",
-
-        r"applications\s*[:\-]\s*([^\n]+)",
-
-        r"intended\s*use\s*[:\-]\s*([^\n]+)",
-
-        r"use\s*case\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["application"]:
-
-        for pattern in application_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["application"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # PRESSURE
-    # =====================================================
-
-    pressure_patterns = [
-
-        r"maximum\s*pressure\s*[:\-]?\s*([^\n]+)",
-
-        r"max\s*pressure\s*[:\-]?\s*([^\n]+)",
-
-        r"operating\s*pressure\s*[:\-]?\s*([^\n]+)",
-
-        r"pressure\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["pressure"]:
-
-        for pattern in pressure_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["pressure"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # FLOW RATE
-    # =====================================================
-
-    flow_patterns = [
-
-        r"flow\s*rate\s*[:\-]?\s*([^\n]+)",
-
-        r"maximum\s*flow\s*[:\-]?\s*([^\n]+)",
-
-        r"max\s*flow\s*[:\-]?\s*([^\n]+)"
-    ]
-
-    if not result["flow_rate"]:
-
-        for pattern in flow_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["flow_rate"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # VOLTAGE
-    # =====================================================
-
-    voltage_patterns = [
-
-        r"input\s*voltage\s*[:\-]?\s*([^\n]+)",
-
-        r"operating\s*voltage\s*[:\-]?\s*([^\n]+)",
-
-        r"voltage\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["voltage"]:
-
-        for pattern in voltage_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["voltage"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # POWER
-    # =====================================================
-
-    power_patterns = [
-
-        r"power\s*[:\-]\s*([^\n]+)",
-
-        r"rated\s*power\s*[:\-]\s*([^\n]+)",
-
-        r"power\s*rating\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["power"]:
-
-        for pattern in power_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["power"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # TEMPERATURE
-    # =====================================================
-
-    temperature_patterns = [
-
-        r"operating\s*temperature\s*[:\-]?\s*([^\n]+)",
-
-        r"maximum\s*temperature\s*[:\-]?\s*([^\n]+)",
-
-        r"max\s*temperature\s*[:\-]?\s*([^\n]+)",
-
-        r"temperature\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["temperature"]:
-
-        for pattern in temperature_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["temperature"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # WEIGHT
-    # =====================================================
-
-    weight_patterns = [
-
-        r"shipping\s*weight\s*[:\-]?\s*([^\n]+)",
-
-        r"net\s*weight\s*[:\-]?\s*([^\n]+)",
-
-        r"weight\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["weight"]:
-
-        for pattern in weight_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["weight"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # DIMENSIONS
-    # =====================================================
-
-    dimension_patterns = [
-
-        r"product\s*dimensions\s*[:\-]?\s*([^\n]+)",
-
-        r"dimensions\s*[:\-]\s*([^\n]+)",
-
-        r"size\s*[:\-]\s*([^\n]+)"
-    ]
-
-    if not result["dimensions"]:
-
-        for pattern in dimension_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                result["dimensions"] = (
-                    match.group(1).strip()
-                )
-
-                break
-
-    # =====================================================
-    # CERTIFICATIONS
-    # =====================================================
-
-    certifications = [
-
-        "ISO 9001",
-        "ISO 14001",
-        "ISO 45001",
-        "CE",
-        "UL",
-        "RoHS",
-        "ANSI",
-        "ASME",
-        "IEC",
-        "ATEX",
-        "FDA"
-    ]
-
-    found_certifications = []
-
-    for certification in certifications:
-
-        if certification.lower() in text_lower:
-
-            found_certifications.append(
-                certification
-            )
-
-    if found_certifications:
-
-        result["certification"] = (
-            ", ".join(found_certifications)
+    # -----------------------------------------------------
+    # Detect product type
+    # -----------------------------------------------------
+
+    sorted_product_types = sorted(
+        PRODUCT_TYPES,
+        key=len,
+        reverse=True
+    )
+
+    for product_type in sorted_product_types:
+
+        pattern = (
+            r"\b" +
+            re.escape(product_type) +
+            r"\b"
         )
 
-    # =====================================================
-    # IMPORTANT SPECIFICATIONS
-    # =====================================================
-
-    specification_patterns = [
-
-        r"maximum\s*pressure\s*[:\-]?\s*([^\n]+)",
-
-        r"max\s*pressure\s*[:\-]?\s*([^\n]+)",
-
-        r"operating\s*pressure\s*[:\-]?\s*([^\n]+)",
-
-        r"flow\s*rate\s*[:\-]?\s*([^\n]+)",
-
-        r"input\s*voltage\s*[:\-]?\s*([^\n]+)",
-
-        r"operating\s*voltage\s*[:\-]?\s*([^\n]+)",
-
-        r"power\s*[:\-]?\s*([^\n]+)",
-
-        r"operating\s*temperature\s*[:\-]?\s*([^\n]+)",
-
-        r"maximum\s*temperature\s*[:\-]?\s*([^\n]+)",
-
-        r"material\s*[:\-]?\s*([^\n]+)"
-    ]
-
-    for pattern in specification_patterns:
-
-        matches = re.findall(
+        if re.search(
             pattern,
-            text,
-            re.IGNORECASE
-        )
+            query_lower
+        ):
 
-        for match in matches[:2]:
+            requirements["product_type"] = product_type
 
-            value = clean_value(match)
+            break
 
-            if value and value not in result[
-                "important_specifications"
-            ]:
+    # -----------------------------------------------------
+    # Detect materials
+    # -----------------------------------------------------
 
-                result[
-                    "important_specifications"
-                ].append(value)
-
-    # =====================================================
-    # FALLBACK PRODUCT NAME
-    # =====================================================
-
-    if not result["product_name"]:
-
-        lines = [
-            line.strip()
-            for line in text.splitlines()
-            if line.strip()
-        ]
-
-        if lines:
-
-            first_line = lines[0]
-
-            if len(first_line) <= 150:
-
-                result["product_name"] = (
-                    first_line
-                )
-
-    return result
-
-
-# =========================================================
-# EXPLAIN RECOMMENDATION
-# =========================================================
-
-def explain_recommendation(
-    requirement,
-    product
-):
-    """
-    Generate an explainable recommendation using
-    actual product information.
-    """
-
-    requirement = clean_value(
-        requirement
+    sorted_materials = sorted(
+        MATERIALS,
+        key=len,
+        reverse=True
     )
 
-    product_name = clean_value(
-        product.get(
-            "product_name"
-        )
-    )
+    for material in sorted_materials:
 
-    category = clean_value(
-        product.get(
-            "category"
-        )
-    )
+        if material in query_lower:
 
-    brand = clean_value(
-        product.get(
-            "brand"
-        )
-    )
+            if (
+                material == "carbon steel"
+                and
+                "stainless steel" in query_lower
+            ):
+                continue
 
-    model = clean_value(
-        product.get(
-            "model"
-        )
-    )
-
-    about = clean_value(
-        product.get(
-            "about"
-        )
-    )
-
-    specification = clean_value(
-        product.get(
-            "specification"
-        )
-    )
-
-    technical_details = clean_value(
-        product.get(
-            "technical_details"
-        )
-    )
-
-    score = product.get(
-        "match_score",
-        0
-    )
-
-    # =====================================================
-    # PRODUCT TEXT
-    # =====================================================
-
-    product_text = " ".join([
-
-        product_name,
-
-        category,
-
-        brand,
-
-        model,
-
-        about,
-
-        specification,
-
-        technical_details
-    ]).lower()
-
-    # =====================================================
-    # REQUIREMENT WORD MATCHING
-    # =====================================================
-
-    requirement_words = set(
-        re.findall(
-            r"\b[a-zA-Z0-9]+\b",
-            requirement.lower()
-        )
-    )
-
-    matched_words = []
-
-    for word in requirement_words:
-
-        if len(word) < 3:
-            continue
-
-        if word in product_text:
-
-            matched_words.append(
-                word
+            requirements["materials"].append(
+                material
             )
 
-    # =====================================================
-    # BUILD EXPLANATION
-    # =====================================================
-
-    explanation = []
-
-    explanation.append(
-        f"### Why this product was recommended"
-    )
-
-    explanation.append(
-        f"**{product_name}** achieved a "
-        f"**{score}% match** based on the available "
-        f"product information."
-    )
-
-    if matched_words:
-
-        explanation.append(
-            "✓ Matching evidence found for: "
-            + ", ".join(
-                sorted(
-                    matched_words
-                )[:10]
-            )
-            + "."
-        )
-
-    if category:
-
-        explanation.append(
-            f"✓ Product category: **{category}**."
-        )
-
-    if brand:
-
-        explanation.append(
-            f"✓ Brand information available: "
-            f"**{brand}**."
-        )
-
-    if model:
-
-        explanation.append(
-            f"✓ Model information available: "
-            f"**{model}**."
-        )
-
-    if specification:
-
-        explanation.append(
-            "✓ Technical specification information "
-            "is available."
-        )
-
-    else:
-
-        explanation.append(
-            "⚠ Technical specification information "
-            "is limited."
-        )
-
-    if about:
-
-        explanation.append(
-            "✓ Product description is available "
-            "and was considered during matching."
-        )
-
-    # =====================================================
-    # LIMITATION
-    # =====================================================
-
-    explanation.append(
-        "⚠ Recommendation is based only on the "
-        "information available in the product dataset. "
-        "It should not be treated as a certified "
-        "engineering recommendation."
-    )
-
-    return "\n\n".join(
-        explanation
-    )
-
-
-# =========================================================
-# PRODUCT COMPARISON
-# =========================================================
-
-def compare_products(
-    requirement,
-    products
-):
-    """
-    Generate a transparent comparison based only
-    on supplied product information.
-    """
-
-    if not products:
-
-        return (
-            "No products selected for comparison."
-        )
-
-    lines = []
-
-    lines.append(
-        "### Product Comparison"
-    )
-
-    if requirement:
-
-        lines.append(
-            f"Requested requirement: "
-            f"**{clean_value(requirement)}**"
-        )
-
-    lines.append("")
-
-    # =====================================================
-    # FIND BEST MATCH
-    # =====================================================
-
-    def get_score(product):
-
-        try:
-
-            return float(
-                product.get(
-                    "match_score",
-                    0
-                )
-            )
-
-        except Exception:
-
-            return 0
-
-    best_product = max(
-        products,
-        key=get_score
-    )
-
-    best_name = clean_value(
-        best_product.get(
-            "product_name"
-        )
-    )
-
-    best_score = get_score(
-        best_product
-    )
-
-    lines.append(
-        f"🏆 **Strongest available match:** "
-        f"{best_name} "
-        f"({best_score:.2f}% match)"
-    )
-
-    lines.append("")
-
-    # =====================================================
-    # EACH PRODUCT
-    # =====================================================
-
-    for product in products:
-
-        name = clean_value(
-            product.get(
-                "product_name"
-            )
-        )
-
-        score = get_score(
-            product
-        )
-
-        category = clean_value(
-            product.get(
-                "category"
-            )
-        )
-
-        brand = clean_value(
-            product.get(
-                "brand"
-            )
-        )
-
-        model = clean_value(
-            product.get(
-                "model"
-            )
-        )
-
-        specification = clean_value(
-            product.get(
-                "specification"
-            )
-        )
-
-        technical_details = clean_value(
-            product.get(
-                "technical_details"
-            )
-        )
-
-        lines.append(
-            f"**{name}** — "
-            f"**{score:.2f}% match**"
-        )
-
-        if brand:
-
-            lines.append(
-                f"- Brand: {brand}"
-            )
-
-        if model:
-
-            lines.append(
-                f"- Model: {model}"
-            )
-
-        if category:
-
-            lines.append(
-                f"- Category: {category}"
-            )
-
-        if specification:
-
-            lines.append(
-                "- ✓ Specification information available"
-            )
-
-        else:
-
-            lines.append(
-                "- ⚠ Limited specification information"
-            )
-
-        if technical_details:
-
-            lines.append(
-                "- ✓ Technical details available"
-            )
-
-        else:
-
-            lines.append(
-                "- ⚠ Technical details unavailable"
-            )
-
-        lines.append("")
-
-    # =====================================================
-    # SIMPLE COMPARISON CONCLUSION
-    # =====================================================
-
-    if len(products) >= 2:
-
-        scores = [
-            get_score(product)
-            for product in products
-        ]
-
-        highest = max(scores)
-        lowest = min(scores)
-
-        difference = highest - lowest
-
-        if difference >= 15:
-
-            lines.append(
-                "### Recommendation Insight"
-            )
-
-            lines.append(
-                "The highest-ranked product has a "
-                "significantly stronger matching score "
-                "than the lowest-ranked option."
-            )
-
-        elif difference >= 5:
-
-            lines.append(
-                "### Recommendation Insight"
-            )
-
-            lines.append(
-                "The products have moderately different "
-                "matching scores. Review their technical "
-                "specifications before selecting one."
-            )
-
-        else:
-
-            lines.append(
-                "### Recommendation Insight"
-            )
-
-            lines.append(
-                "The products have relatively similar "
-                "matching scores. The final choice should "
-                "consider the available technical details."
-            )
-
-    # =====================================================
-    # SAFETY NOTE
-    # =====================================================
-
-    lines.append("")
-
-    lines.append(
-        "⚠ This comparison uses only the available "
-        "dataset information. It is not a real-world "
-        "engineering compatibility guarantee."
-    )
-
-    return "\n".join(
-        lines
-    )
-
-
-# =========================================================
-# DATA QUALITY ANALYSIS
-# =========================================================
-
-def analyze_data_quality(product):
-    """
-    Calculate a transparent product-data completeness
-    score using actual available fields.
-    """
-
-    fields = [
-
-        "product_name",
-
-        "category",
-
-        "brand",
-
-        "model",
-
-        "about",
-
-        "specification",
-
-        "technical_details",
-
-        "weight",
-
-        "dimensions",
-
-        "price"
+    # -----------------------------------------------------
+    # Detect industrial requirement
+    # -----------------------------------------------------
+
+    industrial_query_words = [
+        "industrial",
+        "commercial",
+        "professional",
+        "manufacturing",
+        "factory",
+        "machinery"
     ]
 
-    available = 0
+    for word in industrial_query_words:
 
-    missing = []
+        pattern = (
+            r"\b" +
+            re.escape(word) +
+            r"\b"
+        )
+
+        if re.search(
+            pattern,
+            query_lower
+        ):
+
+            requirements["industrial"] = True
+
+            break
+
+    # -----------------------------------------------------
+    # Detect technical numbers
+    # -----------------------------------------------------
+
+    numbers = re.findall(
+        r"\d+(?:\.\d+)?\s*"
+        r"(?:bar|psi|v|volt|volts|w|kw|kg|g|mm|cm|"
+        r"l/min|rpm|°c|c)",
+        query_lower
+    )
+
+    requirements["numbers"] = numbers
+
+    return requirements
+
+
+# =========================================================
+# PRODUCT MATCHER
+# =========================================================
+
+class ProductMatcher:
+
+    def __init__(self):
+
+        print("Loading products...")
+
+        self.df = pd.read_csv(
+            DATA_FILE
+        )
+
+        # -------------------------------------------------
+        # Make important columns safe
+        # -------------------------------------------------
+
+        columns_to_clean = [
+            "product_id",
+            "product_name",
+            "category",
+            "brand",
+            "model",
+            "about",
+            "specification",
+            "technical_details",
+            "weight",
+            "dimensions",
+            "price",
+            "source_url"
+        ]
+
+        for column in columns_to_clean:
+
+            if column not in self.df.columns:
+
+                self.df[column] = ""
+
+            self.df[column] = (
+                self.df[column]
+                .fillna("")
+                .astype(str)
+            )
+
+        # -------------------------------------------------
+        # IMPORTANT DEPLOYMENT FIX
+        #
+        # products.csv does not contain search_text.
+        # Create it automatically from the available
+        # product information.
+        # -------------------------------------------------
+
+        search_columns = [
+            "product_name",
+            "brand",
+            "category",
+            "model",
+            "about",
+            "specification",
+            "technical_details",
+            "weight",
+            "dimensions"
+        ]
+
+        self.df["search_text"] = (
+            self.df[search_columns]
+            .fillna("")
+            .astype(str)
+            .agg(
+                " ".join,
+                axis=1
+            )
+            .str.lower()
+            .str.replace(
+                r"\s+",
+                " ",
+                regex=True
+            )
+            .str.strip()
+        )
+
+        print(
+            f"Products available for matching: "
+            f"{len(self.df)}"
+        )
+
+        # -------------------------------------------------
+        # Build TF-IDF search index
+        # -------------------------------------------------
+
+        print(
+            "Building search index..."
+        )
+
+        self.vectorizer = TfidfVectorizer(
+            stop_words="english",
+            max_features=15000,
+            ngram_range=(1, 2)
+        )
+
+        self.product_vectors = (
+            self.vectorizer.fit_transform(
+                self.df["search_text"]
+            )
+        )
+
+        print(
+            "Search index ready!"
+        )
 
     # =====================================================
-    # CHECK FIELDS
+    # CALCULATE PRODUCT SCORE
     # =====================================================
 
-    for field in fields:
+    def calculate_score(
+        self,
+        product,
+        similarity,
+        requirements,
+        query
+    ):
 
-        value = clean_value(
+        # -------------------------------------------------
+        # Base semantic similarity
+        # -------------------------------------------------
+
+        score = similarity * 45
+
+        # -------------------------------------------------
+        # Combine product information
+        # -------------------------------------------------
+
+        product_name = str(
             product.get(
-                field,
+                "product_name",
                 ""
             )
+        ).lower()
+
+        category = str(
+            product.get(
+                "category",
+                ""
+            )
+        ).lower()
+
+        about = str(
+            product.get(
+                "about",
+                ""
+            )
+        ).lower()
+
+        specification = str(
+            product.get(
+                "specification",
+                ""
+            )
+        ).lower()
+
+        technical_details = str(
+            product.get(
+                "technical_details",
+                ""
+            )
+        ).lower()
+
+        text = (
+            product_name + " " +
+            category + " " +
+            about + " " +
+            specification + " " +
+            technical_details
         )
 
-        if value:
+        query_lower = query.lower()
 
-            available += 1
+        # =================================================
+        # 1. PRODUCT TYPE
+        # =================================================
 
-        else:
+        product_type = requirements[
+            "product_type"
+        ]
 
-            missing.append(
-                field
+        if product_type:
+
+            pattern = (
+                r"\b" +
+                re.escape(product_type) +
+                r"\b"
             )
 
-    # =====================================================
-    # COMPLETENESS
-    # =====================================================
+            if re.search(
+                pattern,
+                product_name
+            ):
 
-    if fields:
+                score += 30
 
-        completeness = round(
-            (
-                available /
-                len(fields)
-            ) * 100,
-            2
+            elif re.search(
+                pattern,
+                category
+            ):
+
+                score += 25
+
+            elif re.search(
+                pattern,
+                text
+            ):
+
+                score += 12
+
+            else:
+
+                score -= 15
+
+        # =================================================
+        # 2. MATERIAL
+        # =================================================
+
+        materials = requirements[
+            "materials"
+        ]
+
+        if materials:
+
+            matched_materials = 0
+
+            for material in materials:
+
+                if material in text:
+
+                    matched_materials += 1
+
+            material_score = (
+                18 *
+                matched_materials /
+                len(materials)
+            )
+
+            score += material_score
+
+            if matched_materials == 0:
+
+                score -= 8
+
+        # =================================================
+        # 3. INDUSTRIAL RELEVANCE
+        # =================================================
+
+        if requirements[
+            "industrial"
+        ]:
+
+            industrial_match = False
+
+            for word in INDUSTRIAL_WORDS:
+
+                if word in category:
+
+                    industrial_match = True
+
+                    break
+
+            if not industrial_match:
+
+                for word in INDUSTRIAL_WORDS:
+
+                    if word in text:
+
+                        industrial_match = True
+
+                        break
+
+            if industrial_match:
+
+                score += 15
+
+            else:
+
+                score -= 12
+
+        # =================================================
+        # 4. PENALIZE CONSUMER PRODUCTS
+        # =================================================
+
+        for word in IRRELEVANT_CATEGORIES:
+
+            if word in category:
+
+                score -= 30
+
+                break
+
+        # =================================================
+        # 5. TECHNICAL INFORMATION BONUS
+        # =================================================
+
+        technical_fields = 0
+
+        if about.strip():
+
+            technical_fields += 1
+
+        if specification.strip():
+
+            technical_fields += 1
+
+        if technical_details.strip():
+
+            technical_fields += 1
+
+        score += (
+            technical_fields * 2
         )
 
-    else:
+        # =================================================
+        # 6. NUMERIC REQUIREMENT
+        # =================================================
 
-        completeness = 0
+        numbers = requirements[
+            "numbers"
+        ]
+
+        if numbers:
+
+            matched_numbers = 0
+
+            for number in numbers:
+
+                numeric_part = re.findall(
+                    r"\d+(?:\.\d+)?",
+                    number
+                )
+
+                if numeric_part:
+
+                    value = numeric_part[0]
+
+                    if value in text:
+
+                        matched_numbers += 1
+
+            numeric_score = (
+                5 *
+                matched_numbers /
+                len(numbers)
+            )
+
+            score += numeric_score
+
+        # =================================================
+        # 7. EXACT QUERY WORD BONUS
+        # =================================================
+
+        query_words = [
+            word
+            for word in re.findall(
+                r"\b[a-zA-Z]+\b",
+                query_lower
+            )
+            if len(word) >= 4
+        ]
+
+        matched_query_words = 0
+
+        for word in query_words:
+
+            if word in text:
+
+                matched_query_words += 1
+
+        if query_words:
+
+            keyword_score = (
+                5 *
+                matched_query_words /
+                len(query_words)
+            )
+
+            score += keyword_score
+
+        # =================================================
+        # FINAL SCORE
+        # =================================================
+
+        return max(
+            0,
+            min(
+                100,
+                score
+            )
+        )
 
     # =====================================================
-    # SIMPLE CONFIDENCE
+    # SEARCH
     # =====================================================
 
-    confidence = completeness
+    def search(
+        self,
+        query,
+        top_k=5
+    ):
 
-    # =====================================================
-    # RETURN RESULT
-    # =====================================================
+        if (
+            not query or
+            not query.strip()
+        ):
 
-    return {
+            return []
 
-        "completeness":
-            completeness,
+        # -------------------------------------------------
+        # Extract requirements
+        # -------------------------------------------------
 
-        "confidence":
-            confidence,
+        requirements = extract_requirements(
+            query
+        )
 
-        "available_fields":
-            available,
+        # -------------------------------------------------
+        # Query TF-IDF vector
+        # -------------------------------------------------
 
-        "total_fields":
-            len(fields),
+        query_vector = (
+            self.vectorizer.transform(
+                [query]
+            )
+        )
 
-        "missing_fields":
-            missing
-    }
+        # -------------------------------------------------
+        # Calculate similarity
+        # -------------------------------------------------
+
+        similarities = cosine_similarity(
+            query_vector,
+            self.product_vectors
+        ).flatten()
+
+        # -------------------------------------------------
+        # Candidate pool
+        # -------------------------------------------------
+
+        candidate_count = min(
+            300,
+            len(self.df)
+        )
+
+        candidate_indices = (
+            similarities
+            .argsort()
+            [-candidate_count:]
+            [::-1]
+        )
+
+        results = []
+
+        # -------------------------------------------------
+        # Score candidates
+        # -------------------------------------------------
+
+        for index in candidate_indices:
+
+            product = self.df.iloc[
+                index
+            ]
+
+            score = self.calculate_score(
+                product,
+                similarities[index],
+                requirements,
+                query
+            )
+
+            results.append({
+
+                "product_id":
+                    product.get(
+                        "product_id",
+                        ""
+                    ),
+
+                "product_name":
+                    product.get(
+                        "product_name",
+                        ""
+                    ),
+
+                "category":
+                    product.get(
+                        "category",
+                        ""
+                    ),
+
+                "brand":
+                    product.get(
+                        "brand",
+                        ""
+                    ),
+
+                "model":
+                    product.get(
+                        "model",
+                        ""
+                    ),
+
+                "about":
+                    product.get(
+                        "about",
+                        ""
+                    ),
+
+                "specification":
+                    product.get(
+                        "specification",
+                        ""
+                    ),
+
+                "technical_details":
+                    product.get(
+                        "technical_details",
+                        ""
+                    ),
+
+                "weight":
+                    product.get(
+                        "weight",
+                        ""
+                    ),
+
+                "dimensions":
+                    product.get(
+                        "dimensions",
+                        ""
+                    ),
+
+                "price":
+                    product.get(
+                        "price",
+                        ""
+                    ),
+
+                "source_url":
+                    product.get(
+                        "source_url",
+                        ""
+                    ),
+
+                "match_score":
+                    round(
+                        score,
+                        2
+                    )
+            })
+
+        # -------------------------------------------------
+        # Sort by final score
+        # -------------------------------------------------
+
+        results.sort(
+            key=lambda x:
+                x["match_score"],
+            reverse=True
+        )
+
+        return results[
+            :top_k
+        ]
 
 
 # =========================================================
-# LOCAL AI SERVICE TEST
+# COMMAND-LINE TEST
 # =========================================================
 
 if __name__ == "__main__":
 
-    print(
-        "========================================"
+    matcher = ProductMatcher()
+
+    query = input(
+        "\nEnter product requirement: "
+    )
+
+    requirements = extract_requirements(
+        query
     )
 
     print(
-        "          INDUX AI SERVICE"
+        "\nDetected requirements:"
     )
 
     print(
-        "========================================"
+        requirements
+    )
+
+    results = matcher.search(
+        query,
+        top_k=5
     )
 
     print(
-        "Local AI service loaded successfully!"
+        "\nTop Matching Products:\n"
     )
 
-    print(
-        "No API key is required."
-    )
-
-    print()
-
-    # -----------------------------------------------------
-    # Sample PDF-like text
-    # -----------------------------------------------------
-
-    sample_text = """
-
-    Industrial Stainless Steel Pump
-
-    Manufacturer: ABC Industries
-
-    Model: P250
-
-    Material: Stainless Steel
-
-    Application: Chemical Processing
-
-    Maximum Pressure: 250 bar
-
-    Flow Rate: 18 L/min
-
-    Input Voltage: 230 V
-
-    Power: 2.5 kW
-
-    Operating Temperature: 120 C
-
-    Weight: 18 kg
-
-    Product Dimensions: 300 x 200 x 180 mm
-
-    Certification: ISO 9001, CE
-
-    """
-
-    # -----------------------------------------------------
-    # Test extraction
-    # -----------------------------------------------------
-
-    result = extract_product_information(
-        sample_text
-    )
-
-    print(
-        "Sample Product Extraction:"
-    )
-
-    print()
-
-    for key, value in result.items():
+    if not results:
 
         print(
-            f"{key}: {value}"
+            "No matching products found."
         )
 
-    print()
+    else:
 
-    # -----------------------------------------------------
-    # Test quality analysis
-    # -----------------------------------------------------
+        for i, product in enumerate(
+            results,
+            1
+        ):
 
-    quality = analyze_data_quality(
-        result
-    )
+            print(
+                f"{i}. "
+                f"{product['product_name']}"
+            )
 
-    print(
-        "Sample Data Quality:"
-    )
+            print(
+                f"   Match: "
+                f"{product['match_score']}%"
+            )
 
-    print(
-        quality
-    )
+            print(
+                f"   Category: "
+                f"{product['category']}"
+            )
 
-    print()
+            if str(
+                product["brand"]
+            ).strip():
 
-    print(
-        "========================================"
-    )
+                print(
+                    f"   Brand: "
+                    f"{product['brand']}"
+                )
 
-    print(
-        "AI service test completed successfully!"
-    )
+            if str(
+                product["model"]
+            ).strip():
 
-    print(
-        "========================================"
-    )
+                print(
+                    f"   Model: "
+                    f"{product['model']}"
+                )
+
+            print()
