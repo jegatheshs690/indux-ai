@@ -73,7 +73,7 @@ def load_matcher():
 def load_products():
 
     return pd.read_csv(
-        "data/processed_products.csv"
+        "data/products.csv"
     )
 
 
