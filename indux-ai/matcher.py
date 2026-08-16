@@ -9,7 +9,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 # DATA FILE
 # =========================================================
 
-DATA_FILE = "data/products.csv"
+from pathlib import Path
+
+DATA_FILE = Path(__file__).resolve().parent / "data" / "products.csv"
 
 
 # =========================================================
