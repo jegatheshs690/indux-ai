@@ -9,7 +9,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 # DATA FILE
 # =========================================================
 
-DATA_FILE = "data/processed_products.csv"
+DATA_FILE = "data/products.csv"
 
 
 # =========================================================
@@ -114,7 +114,6 @@ def extract_requirements(query):
     # Detect product type
     # -----------------------------------------------------
 
-    # Longer/specific terms first
     sorted_product_types = sorted(
         PRODUCT_TYPES,
         key=len,
@@ -123,7 +122,11 @@ def extract_requirements(query):
 
     for product_type in sorted_product_types:
 
-        pattern = r"\b" + re.escape(product_type) + r"\b"
+        pattern = (
+            r"\b" +
+            re.escape(product_type) +
+            r"\b"
+        )
 
         if re.search(
             pattern,
@@ -148,10 +151,10 @@ def extract_requirements(query):
 
         if material in query_lower:
 
-            # Prevent duplicate steel detection
             if (
                 material == "carbon steel"
-                and "stainless steel" in query_lower
+                and
+                "stainless steel" in query_lower
             ):
                 continue
 
@@ -174,7 +177,11 @@ def extract_requirements(query):
 
     for word in industrial_query_words:
 
-        pattern = r"\b" + re.escape(word) + r"\b"
+        pattern = (
+            r"\b" +
+            re.escape(word) +
+            r"\b"
+        )
 
         if re.search(
             pattern,
@@ -231,19 +238,57 @@ class ProductMatcher:
             "weight",
             "dimensions",
             "price",
-            "source_url",
-            "search_text"
+            "source_url"
         ]
 
         for column in columns_to_clean:
 
-            if column in self.df.columns:
+            if column not in self.df.columns:
 
-                self.df[column] = (
-                    self.df[column]
-                    .fillna("")
-                    .astype(str)
-                )
+                self.df[column] = ""
+
+            self.df[column] = (
+                self.df[column]
+                .fillna("")
+                .astype(str)
+            )
+
+        # -------------------------------------------------
+        # IMPORTANT DEPLOYMENT FIX
+        #
+        # products.csv does not contain search_text.
+        # Create it automatically from the available
+        # product information.
+        # -------------------------------------------------
+
+        search_columns = [
+            "product_name",
+            "brand",
+            "category",
+            "model",
+            "about",
+            "specification",
+            "technical_details",
+            "weight",
+            "dimensions"
+        ]
+
+        self.df["search_text"] = (
+            self.df[search_columns]
+            .fillna("")
+            .astype(str)
+            .agg(
+                " ".join,
+                axis=1
+            )
+            .str.lower()
+            .str.replace(
+                r"\s+",
+                " ",
+                regex=True
+            )
+            .str.strip()
+        )
 
         print(
             f"Products available for matching: "
@@ -408,8 +453,6 @@ class ProductMatcher:
 
             score += material_score
 
-            # Strong penalty if requested material
-            # is completely absent
             if matched_materials == 0:
 
                 score -= 8
@@ -424,7 +467,6 @@ class ProductMatcher:
 
             industrial_match = False
 
-            # Check category first
             for word in INDUSTRIAL_WORDS:
 
                 if word in category:
@@ -433,7 +475,6 @@ class ProductMatcher:
 
                     break
 
-            # Check product information
             if not industrial_match:
 
                 for word in INDUSTRIAL_WORDS:
@@ -453,7 +494,7 @@ class ProductMatcher:
                 score -= 12
 
         # =================================================
-        # 4. PENALIZE OBVIOUS CONSUMER PRODUCTS
+        # 4. PENALIZE CONSUMER PRODUCTS
         # =================================================
 
         for word in IRRELEVANT_CATEGORIES:
@@ -590,7 +631,7 @@ class ProductMatcher:
         )
 
         # -------------------------------------------------
-        # Convert query to TF-IDF vector
+        # Query TF-IDF vector
         # -------------------------------------------------
 
         query_vector = (
@@ -725,13 +766,12 @@ class ProductMatcher:
             })
 
         # -------------------------------------------------
-        # Sort
+        # Sort by final score
         # -------------------------------------------------
 
         results.sort(
-            key=lambda x: x[
-                "match_score"
-            ],
+            key=lambda x:
+                x["match_score"],
             reverse=True
         )
 
