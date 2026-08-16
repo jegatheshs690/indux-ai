@@ -73,7 +73,7 @@ def load_matcher():
 def load_products():
 
     return pd.read_csv(
-        "data/products.csv"
+        "indux-ai/data/products.csv"
     )
 
 
